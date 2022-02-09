@@ -27,6 +27,8 @@ from utils.general import (LOGGER, check_requirements, check_suffix, check_versi
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import copy_attr, time_sync
 
+import torchvision
+
 
 def autopad(k, p=None):  # kernel, padding
     # Pad to 'same'
@@ -374,20 +376,19 @@ class DetectMultiBackend(nn.Module):
                 graph_def.ParseFromString(open(w, 'rb').read())
                 frozen_func = wrap_frozen_graph(gd=graph_def, inputs="x:0", outputs="Identity:0")
             elif tflite:  # https://www.tensorflow.org/lite/guide/python#install_tensorflow_lite_for_python
-                try:  # https://coral.ai/docs/edgetpu/tflite-python/#update-existing-tf-lite-code-for-the-edge-tpu
-                    from tflite_runtime.interpreter import Interpreter, load_delegate
+                try:
+                    import tflite_runtime.interpreter as tfl  # prefer tflite_runtime if installed
                 except ImportError:
-                    import tensorflow as tf
-                    Interpreter, load_delegate = tf.lite.Interpreter, tf.lite.experimental.load_delegate,
+                    import tensorflow.lite as tfl
                 if 'edgetpu' in w.lower():  # Edge TPU https://coral.ai/software/#edgetpu-runtime
                     LOGGER.info(f'Loading {w} for TensorFlow Lite Edge TPU inference...')
                     delegate = {'Linux': 'libedgetpu.so.1',
                                 'Darwin': 'libedgetpu.1.dylib',
                                 'Windows': 'edgetpu.dll'}[platform.system()]
-                    interpreter = Interpreter(model_path=w, experimental_delegates=[load_delegate(delegate)])
+                    interpreter = tfl.Interpreter(model_path=w, experimental_delegates=[tfl.load_delegate(delegate)])
                 else:  # Lite
                     LOGGER.info(f'Loading {w} for TensorFlow Lite inference...')
-                    interpreter = Interpreter(model_path=w)  # load TFLite model
+                    interpreter = tfl.Interpreter(model_path=w)  # load TFLite model
                 interpreter.allocate_tensors()  # allocate
                 input_details = interpreter.get_input_details()  # inputs
                 output_details = interpreter.get_output_details()  # outputs
@@ -428,7 +429,7 @@ class DetectMultiBackend(nn.Module):
                 conf, cls = y['confidence'].max(1), y['confidence'].argmax(1).astype(np.float)
                 y = np.concatenate((box, conf.reshape(-1, 1), cls.reshape(-1, 1)), 1)
             else:
-                y = y[sorted(y)[-1]]  # last output
+                y = y[list(y)[-1]]  # last output
         else:  # TensorFlow (SavedModel, GraphDef, Lite, Edge TPU)
             im = im.permute(0, 2, 3, 1).cpu().numpy()  # torch BCHW to numpy BHWC shape(1,320,192,3)
             if self.saved_model:  # SavedModel
@@ -447,7 +448,10 @@ class DetectMultiBackend(nn.Module):
                 if int8:
                     scale, zero_point = output['quantization']
                     y = (y.astype(np.float32) - zero_point) * scale  # re-scale
-            y[..., :4] *= [w, h, w, h]  # xywh normalized to pixels
+            y[..., 0] *= w  # x
+            y[..., 1] *= h  # y
+            y[..., 2] *= w  # w
+            y[..., 3] *= h  # h
 
         y = torch.tensor(y) if isinstance(y, np.ndarray) else y
         return (y, []) if val else y
@@ -660,3 +664,89 @@ class Classify(nn.Module):
     def forward(self, x):
         z = torch.cat([self.aap(y) for y in (x if isinstance(x, list) else [x])], 1)  # cat if list
         return self.flat(self.conv(z))  # flatten to x(b,c2)
+
+
+class DeformableConv2d(nn.Module):
+    # Deformable Convolution Layer
+    def __init__(self, c1, c2, k=3, s=1, p=None, g=1, act=True, bias=False):  # ch_in, ch_out, kernel, stride, padding, groups
+        super(DeformableConv2d, self).__init__()
+        self.padding = autopad(k, p)
+        self.stride = s
+        self.offset_conv = nn.Conv2d(c1, 2 * k * k, k, s, self.padding, bias=True)
+        nn.init.constant_(self.offset_conv.weight, 0.)
+        nn.init.constant_(self.offset_conv.bias, 0.)
+        self.modulator_conv = nn.Conv2d(c1, k * k, k, s, self.padding, bias=True)
+        nn.init.constant_(self.modulator_conv.weight, 0.)
+        nn.init.constant_(self.modulator_conv.bias, 0.)
+        self.regular_conv = nn.Conv2d(c1, c2, k, s, self.padding, bias=bias)
+
+    def forward(self, x):
+        offset = self.offset_conv(x)
+        modulator = 2. * torch.sigmoid(self.modulator_conv(x))
+        x = torchvision.ops.deform_conv2d(input=x, 
+                                          offset=offset, 
+                                          weight=self.regular_conv.weight, 
+                                          bias=self.regular_conv.bias, 
+                                          padding=self.padding,
+                                          mask=modulator,
+                                          stride=self.stride)
+        return x
+
+
+class DeformableConv(nn.Module):
+    # Deformable convolution
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
+        super().__init__()
+        self.conv = DeformableConv2d(c1, c2, k, s, autopad(k, p), g=g, bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+
+    def forward(self, x):
+        return self.act(self.bn(self.conv(x)))
+
+    def forward_fuse(self, x):
+        return self.act(self.conv(x))
+
+
+class DeformableC3(nn.Module):
+    # CSP Bottleneck with 3 deformable convolutions
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = DeformableConv(c1, c_, 1, 1)
+        self.cv2 = DeformableConv(c1, c_, 1, 1)
+        self.cv3 = DeformableConv(2 * c_, c2, 1)
+        self.m = nn.Sequential(*(Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)))
+        # self.m = nn.Sequential(*[CrossConv(c_, c_, 3, 1, g, 1.0, shortcut) for _ in range(n)])
+
+    def forward(self, x):
+        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
+
+
+class DecoupledHead(nn.Module):
+    # CSP Bottleneck with 3 deformable convolutions
+    def __init__(self, c1, nc=80, na=3):
+        super().__init__()
+        self.feat = nn.Conv2d(c1, 256, 1)
+        self.cls_channel = nn.Sequential(
+            Conv(256, 256, 3),
+            Conv(256, 256, 3),
+        )
+        self.cls_conv = nn.Conv2d(256, nc * na, 1, 1)
+        self.reg_channel = nn.Sequential(
+            Conv(256, 256, 3),
+            Conv(256, 256, 3),
+        )
+        self.reg_conv = nn.Conv2d(256, 4 * na, 1, 1)
+        self.iou_conv = nn.Conv2d(256, 1 * na, 1, 1)
+
+    def forward(self, x):
+        y = self.feat(x)
+        cls_feat = self.cls_channel(y)
+        a = self.cls_conv(cls_feat)
+        b = torch.sigmoid(a)
+        cls_output = torch.sigmoid(self.cls_conv(cls_feat))
+        reg_feat = self.reg_channel(y)
+        reg_output = self.reg_conv(reg_feat)
+        iou_output = torch.sigmoid(self.iou_conv(reg_feat))
+        return torch.cat((cls_output, iou_output, reg_output), dim=1)
