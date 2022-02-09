@@ -143,7 +143,7 @@ class ComputeLoss:
                 tobj[b, a, gj, gi] = (1.0 - self.gr) + self.gr * score_iou  # iou ratio
 
                 # Classification
-                if self.nc > 1:  # cls loss (only if multiple classes)
+                if self.nc > 1:  # cls loss (only if multiple classes) 类别为1就没有loss,不会训练?
                     t = torch.full_like(ps[:, 5:], self.cn, device=device)  # targets
                     t[range(n), tcls[i]] = self.cp
                     lcls += self.BCEcls(ps[:, 5:], t)  # BCE
