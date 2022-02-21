@@ -158,6 +158,23 @@ class VoVCSP(nn.Module):
         x2 = self.cv2(x1)
         return self.cv3(torch.cat((x1,x2), dim=1))
 
+class VoVCSP_full(nn.Module):
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+        super(VoVCSP_full, self).__init__()
+        c_ = int(c1)  # hidden channels
+        self.cv0 = Conv(c1, c1, 3, 1)
+        self.cv1 = Conv(c1//2, c_//2, 3, 1)
+        self.cv2 = Conv(c_//2, c_//2, 3, 1)
+        self.cv3 = Conv(c_, c2 - c1, 1, 1) #最终结果需要与原始输入拼接,最后卷积的channel数需要减去c1
+        self.mp = nn.MaxPool2d(2,2,0)
+
+    def forward(self, x):
+        x0 = self.cv0(x)
+        _, x1 = x0.chunk(2, dim=1)
+        x1 = self.cv1(x1)
+        x2 = self.cv2(x1)
+        return self.mp(torch.cat((self.cv3(torch.cat((x1,x2), dim=1)),x0),dim=1))
+
 class C3(nn.Module):
     # CSP Bottleneck with 3 convolutions
     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
