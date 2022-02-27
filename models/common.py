@@ -817,4 +817,4 @@ class DecoupledHead(nn.Module):
         reg_feat = self.reg_channel(y)
         reg_output = self.reg_conv(reg_feat)
         iou_output = self.iou_conv(reg_feat)
-        return torch.cat((reg_output, cls_output, iou_output), dim=1)
+        return torch.cat((reg_output, iou_output, cls_output), dim=1)
