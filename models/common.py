@@ -813,10 +813,8 @@ class DecoupledHead(nn.Module):
     def forward(self, x):
         y = self.feat(x)
         cls_feat = self.cls_channel(y)
-        a = self.cls_conv(cls_feat)
-        b = torch.sigmoid(a)
-        cls_output = torch.sigmoid(self.cls_conv(cls_feat))
+        cls_output = self.cls_conv(cls_feat)
         reg_feat = self.reg_channel(y)
         reg_output = self.reg_conv(reg_feat)
-        iou_output = torch.sigmoid(self.iou_conv(reg_feat))
-        return torch.cat((cls_output, iou_output, reg_output), dim=1)
+        iou_output = self.iou_conv(reg_feat)
+        return torch.cat((reg_output, cls_output, iou_output), dim=1)
