@@ -818,3 +818,59 @@ class DecoupledHead(nn.Module):
         reg_output = self.reg_conv(reg_feat)
         iou_output = self.iou_conv(reg_feat)
         return torch.cat((reg_output, iou_output, cls_output), dim=1)
+
+class DilatedBottleneck(nn.Module):
+    #参考https://github.com/Megvii-BaseDetection/YOLOX
+    def __init__(self, in_channels, mid_channels, dilation):
+        super().__init__()
+        self.conv1 = Conv(in_channels,mid_channels,k=1)
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(mid_channels, mid_channels,
+                      kernel_size=3, padding=dilation, dilation=dilation),
+            nn.BatchNorm2d(mid_channels),
+            nn.SiLU()
+        )
+        self.conv3 = Conv(mid_channels,in_channels,k=1)
+
+
+    def forward(self, x):
+        identity = x
+        out = self.conv1(x)
+        out = self.conv2(out)
+        out = self.conv3(out)
+        out = out + identity
+        return out
+
+
+class DilatedEncoder(nn.Module):
+    #参考https://github.com/Megvii-BaseDetection/YOLOX
+    def __init__(self, c1, c2, dilations):
+        super().__init__()
+        self.in_channels = c1
+        self.encoder_channels = c2
+        self.block_mid_channels = c2 // 4 #参照默认配置的比例放缩
+
+        self.lateral_conv = nn.Conv2d(self.in_channels,
+                                      self.encoder_channels,
+                                      kernel_size=1)
+        self.lateral_norm = nn.BatchNorm2d(self.encoder_channels)
+        self.fpn_conv = nn.Conv2d(self.encoder_channels,
+                                  self.encoder_channels,
+                                  kernel_size=3,
+                                  padding=1)
+        self.fpn_norm = nn.BatchNorm2d(self.encoder_channels)
+        encoder_blocks = []
+        for dilation in dilations:
+            encoder_blocks.append(
+                DilatedBottleneck(
+                    self.encoder_channels,
+                    self.block_mid_channels,
+                    dilation=dilation
+                )
+            )
+        self.dilated_encoder_blocks = nn.Sequential(*encoder_blocks)
+
+    def forward(self, x):
+        out = self.lateral_norm(self.lateral_conv(x))
+        out = self.fpn_norm(self.fpn_conv(out))
+        return self.dilated_encoder_blocks(out)
