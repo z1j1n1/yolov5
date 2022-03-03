@@ -820,7 +820,7 @@ class DecoupledHead(nn.Module):
         return torch.cat((reg_output, iou_output, cls_output), dim=1)
 
 class DilatedBottleneck(nn.Module):
-    #参考https://github.com/Megvii-BaseDetection/YOLOX
+    #参考https://github.com/megvii-model/YOLOF
     def __init__(self, in_channels, mid_channels, dilation):
         super().__init__()
         self.conv1 = Conv(in_channels,mid_channels,k=1)
@@ -843,7 +843,7 @@ class DilatedBottleneck(nn.Module):
 
 
 class DilatedEncoder(nn.Module):
-    #参考https://github.com/Megvii-BaseDetection/YOLOX
+    #参考https://github.com/megvii-model/YOLOF
     def __init__(self, c1, c2, dilations):
         super().__init__()
         self.in_channels = c1
@@ -874,3 +874,60 @@ class DilatedEncoder(nn.Module):
         out = self.lateral_norm(self.lateral_conv(x))
         out = self.fpn_norm(self.fpn_conv(out))
         return self.dilated_encoder_blocks(out)
+
+class Decoder(nn.Module):
+    #参考 https://github.com/megvii-model/YOLOF
+    def __init__(self, c1, nc=80, na=3):
+        super(Decoder, self).__init__()
+        self.in_channels = c1
+        self.num_classes = nc
+        self.num_anchors = na
+        self.cls_num_convs = 2
+        self.reg_num_convs = 4
+
+        self.INF = 1e8
+        self._init_layers()
+
+    def _init_layers(self):
+        cls_subnet = []
+        bbox_subnet = []
+        for i in range(self.cls_num_convs):
+            cls_subnet.append(Conv(self.in_channels,self.in_channels,k=1))
+        for i in range(self.reg_num_convs):
+            bbox_subnet.append(Conv(self.in_channels,self.in_channels,k=3))
+        self.cls_subnet = nn.Sequential(*cls_subnet)
+        self.bbox_subnet = nn.Sequential(*bbox_subnet)
+        self.cls_score = nn.Conv2d(self.in_channels,
+                                   self.num_anchors * self.num_classes,
+                                   kernel_size=3,
+                                   stride=1,
+                                   padding=1)
+        self.bbox_pred = nn.Conv2d(self.in_channels,
+                                   self.num_anchors * 4,
+                                   kernel_size=3,
+                                   stride=1,
+                                   padding=1)
+        self.object_pred = nn.Conv2d(self.in_channels,
+                                     self.num_anchors,
+                                     kernel_size=3,
+                                     stride=1,
+                                     padding=1)
+
+    def forward(self, x):
+        cls_score = self.cls_score(self.cls_subnet(x))
+        N, _, H, W = cls_score.shape
+        cls_score = cls_score.view(N, -1, self.num_classes, H, W)
+
+        reg_feat = self.bbox_subnet(x)
+        bbox_reg = self.bbox_pred(reg_feat)
+        objectness = self.object_pred(reg_feat)
+
+        # implicit objectness
+        objectness = objectness.view(N, -1, 1, H, W)
+        normalized_cls_score = cls_score + objectness - torch.log(
+            1. + torch.clamp(cls_score.exp(), max=self.INF) + torch.clamp(
+                objectness.exp(), max=self.INF))
+        normalized_cls_score = normalized_cls_score.view(N, -1, H, W)
+
+        objectness = objectness.view(N, -1, H, W)
+        return torch.cat((bbox_reg, objectness, normalized_cls_score), dim=1)
