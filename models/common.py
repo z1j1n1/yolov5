@@ -916,18 +916,9 @@ class Decoder(nn.Module):
     def forward(self, x):
         cls_score = self.cls_score(self.cls_subnet(x))
         N, _, H, W = cls_score.shape
-        cls_score = cls_score.view(N, -1, self.num_classes, H, W)
 
         reg_feat = self.bbox_subnet(x)
         bbox_reg = self.bbox_pred(reg_feat)
         objectness = self.object_pred(reg_feat)
 
-        # implicit objectness
-        objectness = objectness.view(N, -1, 1, H, W)
-        normalized_cls_score = cls_score + objectness - torch.log(
-            1. + torch.clamp(cls_score.exp(), max=self.INF) + torch.clamp(
-                objectness.exp(), max=self.INF))
-        normalized_cls_score = normalized_cls_score.view(N, -1, H, W)
-
-        objectness = objectness.view(N, -1, H, W)
-        return torch.cat((bbox_reg, objectness, normalized_cls_score), dim=1)
+        return torch.cat((bbox_reg, objectness, cls_score), dim=1)

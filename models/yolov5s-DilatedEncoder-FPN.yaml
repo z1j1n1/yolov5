@@ -5,7 +5,9 @@ nc: 80  # number of classes
 depth_multiple: 0.33  # model depth multiple
 width_multiple: 0.50  # layer channel multiple
 anchors:
-  - [10,13, 16,30, 33,23, 30,61, 62,45, 59,119, 116,90, 156,198, 373,326]
+  - [10,13, 16,30, 33,23]
+  - [30,61, 62,45, 59,119]
+  - [116,90, 156,198, 373,326]
 
 # YOLOv5 v6.0 backbone
 backbone:
@@ -18,12 +20,14 @@ backbone:
    [-1, 1, Conv, [512, 3, 2]],  # 5-P4/16
    [-1, 9, C3, [512]],
    [-1, 1, Conv, [1024, 3, 2]],  # 7-P5/32
-   [-1, 3, C3, [1024]],
-   [-1, 1, DilatedEncoder, [1024, [1,2,3,4,5,6,7,8]]],  # 9
+   [-1, 3, C3, [1024]], #8
   ]
 
 # YOLOv5 v6.0 head
 head:
   [
-   [[9], 1, DecoderDetect, [nc, anchors]],  # Detect
+   [8, 1, DilatedEncoder, [1024, [2,4,6,8]]],  # 9
+   [8, 1, DilatedEncoder, [1024, [2,4,6,8]]],  # 10
+   [8, 1, DilatedEncoder, [1024, [2,4,6,8]]],  # 11
+   [[9,10,11], 1, DecoderDetect, [nc, anchors]],  # Detect
   ]
