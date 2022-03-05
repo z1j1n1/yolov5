@@ -30,16 +30,14 @@ head:
     [7, 1, Conv, [1024, 1, 1]], # 10-P5/32
     [-1, 1, Conv, [1024, 1, 1]],
     [-1, 1, nn.MaxPool2d, [2, 2, 0]], #12-P6/64
-    [-1, 1, Conv, [1024, 1, 1 ]],
-    [-1, 1, nn.MaxPool2d,[2, 2, 0]], #14-P7/128
 
     #NAS-FPN
-    [[12,9], 1, MergingCell, [1, "GP"]], #15-P4_1/16
-    [[15,9], 1, MergingCell, [1, "SUM"]], #16-P4_2/16
-    [[16,8], 1, MergingCell, [1, "SUM"]], #17-P3/8
-    [[17,16], 1, MergingCell, [1, "SUM"]], #18-P4/16
-    [[18,17], 1, MergingCell, [4, "GP", False]], #19-P5_tmp/32
-    [[10,19], 1, MergingCell, [1, "SUM"]], #20-P5/32
+    [[12,9], 1, MergingCell, [1, "GP"]], #13-P4_1/16
+    [[13,9], 1, MergingCell, [1, "SUM"]], #14-P4_2/16
+    [[14,8], 1, MergingCell, [1, "SUM"]], #15-P3/8
+    [[15,14], 1, MergingCell, [1, "SUM"]], #16-P4/16
+    [[16,15], 1, MergingCell, [4, "GP", False]], #17-P5_tmp/32
+    [[10,17], 1, MergingCell, [1, "SUM"]], #18-P5/32
 
-    [[17,18,20], 1, Detect, [nc, anchors]] #Detect(P3,P4,P5)
+    [[15,16,18], 1, Detect, [nc, anchors]] #Detect(P3,P4,P5)
   ]
