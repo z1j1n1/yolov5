@@ -40,9 +40,6 @@ head:
     [[17,16], 1, MergingCell, [1, "SUM"]], #18-P4/16
     [[18,17], 1, MergingCell, [4, "GP", False]], #19-P5_tmp/32
     [[10,19], 1, MergingCell, [1, "SUM"]], #20-P5/32
-    [[20,16], 1, MergingCell, [8, "GP", False]], #21-P7_tmp/128
-    [[14,21], 1, MergingCell, [1, "SUM"]], #22-P7/128
-    [[22,20], 1, MergingCell, [2, "GP"]], #23-P6/128
 
     [[17,18,20], 1, Detect, [nc, anchors]] #Detect(P3,P4,P5)
   ]
