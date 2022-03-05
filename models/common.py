@@ -17,6 +17,7 @@ import pandas as pd
 import requests
 import torch
 import torch.nn as nn
+import torch.nn.functional
 import yaml
 from PIL import Image
 from torch.cuda import amp
@@ -878,7 +879,7 @@ class DilatedEncoder(nn.Module):
 class Decoder(nn.Module):
     #参考 https://github.com/megvii-model/YOLOF
     def __init__(self, c1, nc=80, na=3):
-        super(Decoder, self).__init__()
+        super().__init__()
         self.in_channels = c1
         self.num_classes = nc
         self.num_anchors = na
@@ -922,3 +923,55 @@ class Decoder(nn.Module):
         objectness = self.object_pred(reg_feat)
 
         return torch.cat((bbox_reg, objectness, cls_score), dim=1)
+
+class MergingCell(nn.Module):
+    #参考https://github.com/hz-ants/SOLOv2/blob/b4060b82435327a42817207db7904bb08ff4a888/mmdet/models/necks/nas_fpn.py
+    def __init__(self, c1, c2, outsize_divisor, BinaryOp = "Sum", WithConv=True):
+        super().__init__()
+        #输出的feature map大小在forward时确定,是x2大小除以outsize_divisor
+        self.outsize_divisor = outsize_divisor
+        self.BinaryOp = BinaryOp
+        self.WithConv = WithConv
+
+        if WithConv:
+            self.act = nn.SiLU()
+            self.conv1 = nn.Conv2d(c1,c2,kernel_size=3,padding=1,stride=1)
+            self.bn = nn.BatchNorm2d(c2)
+
+        if BinaryOp == "SUM":
+            pass
+        elif BinaryOp == "GP":
+            self.global_pool = nn.AdaptiveAvgPool2d((1,1))
+
+    def _resize(self, x, size):
+        if x.shape[-2] == size[-2]:
+            return x
+        elif x.shape[-2] < size[-2]:
+            return nn.functional.interpolate(x, size=size, mode='nearest')
+        else:
+            assert x.shape[-2] % size[-2] == 0 and x.shape[-1] % size[-1] == 0
+            kernel_size = x.shape[-1] // size[-1]
+            x = nn.functional.max_pool2d(x, kernel_size=kernel_size, stride=kernel_size)
+            return x
+
+    def forward(self, x):
+        x1 = x[0]
+        x2 = x[1]
+        assert x1.shape[:2] == x2.shape[:2]
+
+        outsize = torch.Size([int(x2.shape[-2]/self.outsize_divisor),int(x2.shape[-1]/self.outsize_divisor)])
+
+        x1 = self._resize(x1, outsize)
+        x2 = self._resize(x2, outsize)
+
+        if self.BinaryOp == "SUM":
+            out = x1 + x2
+        elif self.BinaryOp == "GP":
+            x2_att = self.global_pool(x2).sigmoid()
+            out = x2 + x2_att * x1
+
+        if self.WithConv:
+            out = self.bn(self.conv1(self.act(out)))
+
+        return out
+
