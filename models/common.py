@@ -951,6 +951,8 @@ class MergingCell(nn.Module):
         else:
             assert x.shape[-2] % size[-2] == 0 and x.shape[-1] % size[-1] == 0
             kernel_size = x.shape[-1] // size[-1]
+            if torch.is_tensor(kernel_size):
+                kernel_size = kernel_size.item()
             x = nn.functional.max_pool2d(x, kernel_size=kernel_size, stride=kernel_size)
             return x
 
@@ -959,7 +961,7 @@ class MergingCell(nn.Module):
         x2 = x[1]
         assert x1.shape[:2] == x2.shape[:2]
 
-        outsize = torch.Size([int(x2.shape[-2]/self.outsize_divisor),int(x2.shape[-1]/self.outsize_divisor)])
+        outsize = torch.Size([x2.shape[-2]//self.outsize_divisor,x2.shape[-1]//self.outsize_divisor])
 
         x1 = self._resize(x1, outsize)
         x2 = self._resize(x2, outsize)
