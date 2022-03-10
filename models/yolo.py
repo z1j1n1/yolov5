@@ -402,6 +402,11 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         elif m is MergingCell:
             assert ch[f[0]] == ch[f[1]]
             args = [ch[f[0]], ch[f[0]], *args]
+        elif m is ConcatCell:
+            c2 = make_divisible(args[0] * gw, 8)
+            Conv_Channel_x1 = make_divisible(args[2] * gw, 8) if args[2] > 0 else -1
+            Conv_Channel_x2 = make_divisible(args[3] * gw, 8) if args[3] > 0 else -1
+            args = [ch[f[0]], ch[f[1]], c2, args[1] ,Conv_Channel_x1, Conv_Channel_x2, round(3*gd)]
         else:
             c2 = ch[f]
 

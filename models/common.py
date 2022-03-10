@@ -977,3 +977,51 @@ class MergingCell(nn.Module):
 
         return out
 
+class ConcatCell(nn.Module):
+    def __init__(self, c1_1, c1_2, c2, outsize_divisor, Conv_Channel_x1, Conv_Channel_x2, C3_depth):
+        super().__init__()
+        #输出的feature map大小在forward时确定,是x2大小除以outsize_divisor
+        self.outsize_divisor = outsize_divisor
+        self.Conv_Channel_x1 = Conv_Channel_x1
+        self.Conv_Channel_x2 = Conv_Channel_x2
+
+        if Conv_Channel_x1 > 0: # Conv exists if Conv_Channel > 0
+            self.cv1 = Conv(c1_1, Conv_Channel_x1, k=1, s=1)
+
+        if Conv_Channel_x2 > 0:
+            self.cv2 = Conv(c1_2, Conv_Channel_x2, k=1, s=1)
+
+        concat_channel = (Conv_Channel_x1 if Conv_Channel_x1 > 0 else c1_1) + (Conv_Channel_x2 if Conv_Channel_x2 > 0 else c1_2)
+        self.C3 = C3(concat_channel, c2, n=C3_depth)
+
+    def _resize(self, x, size):
+        if x.shape[-2] == size[-2]:
+            return x
+        elif x.shape[-2] < size[-2]:
+            return nn.functional.interpolate(x, size=size, mode='nearest')
+        else:
+            assert x.shape[-2] % size[-2] == 0 and x.shape[-1] % size[-1] == 0
+            kernel_size = x.shape[-1] // size[-1]
+            if torch.is_tensor(kernel_size):
+                kernel_size = kernel_size.item()
+            x = nn.functional.max_pool2d(x, kernel_size=kernel_size, stride=kernel_size)
+            return x
+
+    def forward(self, x):
+        x1 = x[0]
+        x2 = x[1]
+
+        if self.Conv_Channel_x1 > 0:
+            x1 = self.cv1(x1)
+
+        if self.Conv_Channel_x2 > 0:
+            x2 = self.cv2(x2)
+
+        outsize = torch.Size([x2.shape[-2]//self.outsize_divisor,x2.shape[-1]//self.outsize_divisor])
+
+        x1 = self._resize(x1, outsize)
+        x2 = self._resize(x2, outsize)
+
+        return self.C3(torch.cat((x1,x2), dim = 1))
+
+
