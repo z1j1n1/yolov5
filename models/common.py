@@ -978,7 +978,7 @@ class MergingCell(nn.Module):
         return out
 
 class ConcatCell(nn.Module):
-    def __init__(self, c1_1, c1_2, c2, outsize_divisor, Conv_Channel_x1, Conv_Channel_x2, C3_depth):
+    def __init__(self, c1_1, c1_2, c2, outsize_divisor, Conv_Channel_x1, Conv_Channel_x2, C3_depth, C3_class):
         super().__init__()
         #输出的feature map大小在forward时确定,是x2大小除以outsize_divisor
         self.outsize_divisor = outsize_divisor
@@ -992,7 +992,7 @@ class ConcatCell(nn.Module):
             self.cv2 = Conv(c1_2, Conv_Channel_x2, k=1, s=1)
 
         concat_channel = (Conv_Channel_x1 if Conv_Channel_x1 > 0 else c1_1) + (Conv_Channel_x2 if Conv_Channel_x2 > 0 else c1_2)
-        self.C3 = C3(concat_channel, c2, n=C3_depth)
+        self.C3 = C3_class(concat_channel, c2, n=C3_depth)
 
     def _resize(self, x, size):
         if x.shape[-2] == size[-2]:
