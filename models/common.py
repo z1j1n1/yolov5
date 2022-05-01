@@ -977,8 +977,19 @@ class MergingCell(nn.Module):
 
         return out
 
+class DepthwiseSeparableConv(nn.Module):
+    # Depthwise separable Conv from paper MobileNets: Efficient Convolutional Neural Networks for Mobile Vision Applications
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
+        super().__init__()
+
+        self.cv1 = Conv(c1,c1,k,s,g=c1)
+        self.cv2 = Conv(c1,c2,1,1)
+
+    def forward(self, x):
+        return self.cv2(self.cv1(x))
+
 class ConcatCell(nn.Module):
-    def __init__(self, c1_1, c1_2, c2, outsize_divisor, Conv_Channel_x1, Conv_Channel_x2, C3_depth, C3_class):
+    def __init__(self, c1_1, c1_2, c2, outsize_divisor, Conv_Channel_x1, Conv_kernel_x1, Conv_Depthwise_x1, Conv_Channel_x2, Conv_kernel_x2, Conv_Depthwise_x2 , C3_depth, C3_class):
         super().__init__()
         #输出的feature map大小在forward时确定,是x2大小除以outsize_divisor
         self.outsize_divisor = outsize_divisor
@@ -986,10 +997,16 @@ class ConcatCell(nn.Module):
         self.Conv_Channel_x2 = Conv_Channel_x2
 
         if Conv_Channel_x1 > 0: # Conv exists if Conv_Channel > 0
-            self.cv1 = Conv(c1_1, Conv_Channel_x1, k=1, s=1)
+            if Conv_Depthwise_x1:
+                self.cv1 = DepthwiseSeparableConv(c1_1, Conv_Channel_x1, k=Conv_kernel_x1, s=1)
+            else:
+                self.cv1 = Conv(c1_1, Conv_Channel_x1, k=Conv_kernel_x1, s=1)
 
         if Conv_Channel_x2 > 0:
-            self.cv2 = Conv(c1_2, Conv_Channel_x2, k=1, s=1)
+            if Conv_Depthwise_x2:
+                self.cv2 = DepthwiseSeparableConv(c1_2, Conv_Channel_x2, k=Conv_kernel_x2, s=1)
+            else:
+                self.cv2 = Conv(c1_2, Conv_Channel_x2, k=Conv_kernel_x2, s=1)
 
         concat_channel = (Conv_Channel_x1 if Conv_Channel_x1 > 0 else c1_1) + (Conv_Channel_x2 if Conv_Channel_x2 > 0 else c1_2)
         self.C3 = C3_class(concat_channel, c2, n=C3_depth)

@@ -14,8 +14,8 @@ NConcat = 6
 SampledArchs = 5
 
 for ArchID in range(SampledArchs):
-    feature = [[3, 'P3'], [5, 'P4'], [9, 'P5']]
-    Output = {'P3': 3, 'P4': 5, 'P5': 9}
+    feature = [[4, 'P3'], [6, 'P4'], [9, 'P5']]
+    Output = {'P3': 4, 'P4': 6, 'P5': 9}
     LayerCount = 10
     Neck = []
 
